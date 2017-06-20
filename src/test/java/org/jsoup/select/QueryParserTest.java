@@ -39,4 +39,12 @@ public class QueryParserTest {
         assertEquals("li :prevli :ImmediateParentol", andRight.toString());
         assertEquals(2, andLeft.evaluators.size());
     }
+
+    @Test(expected = Selector.SelectorParseException.class) public void exceptionOnUncloseAttribute() {
+        Evaluator parse = QueryParser.parse("section > a[href=\"]");
+    }
+
+    @Test(expected = Selector.SelectorParseException.class)  public void testParsesSingleQuoteInContains() {
+        Evaluator parse = QueryParser.parse("p:contains(One \" One)");
+    }
 }

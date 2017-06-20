@@ -112,6 +112,13 @@ public class HtmlParserTest {
         assertEquals("TwoThree", options.last().text());
     }
 
+    @Test public void testSelectWithOption() {
+        Parser parser = Parser.htmlParser();
+        parser.setTrackErrors(10);
+        Document document = parser.parseInput("<select><option>Option 1</option></select>", "http://jsoup.org");
+        assertEquals(0, parser.getErrors().size());
+    }
+
     @Test public void testSpaceAfterTag() {
         Document doc = Jsoup.parse("<div > <a name=\"top\"></a ><p id=1 >Hello</p></div>");
         assertEquals("<div> <a name=\"top\"></a><p id=\"1\">Hello</p></div>", TextUtil.stripNewlines(doc.body().html()));
@@ -940,5 +947,19 @@ public class HtmlParserTest {
         parser.settings(new ParseSettings(true, true));
         Document doc = parser.parseInput("<div id=1><SPAN ID=2>", "");
         assertEquals("<html> <head></head> <body> <div id=\"1\"> <SPAN ID=\"2\"></SPAN> </div> </body> </html>", StringUtil.normaliseWhitespace(doc.outerHtml()));
+    }
+
+    @Test public void handlesControlCodeInAttributeName() {
+        Document doc = Jsoup.parse("<p><a \06=foo>One</a><a/\06=bar><a foo\06=bar>Two</a></p>");
+        assertEquals("<p><a>One</a><a></a><a foo=\"bar\">Two</a></p>", doc.body().html());
+    }
+
+    @Test public void caseSensitiveParseTree() {
+        String html = "<r><X>A</X><y>B</y></r>";
+        Parser parser = Parser.htmlParser();
+        parser.settings(ParseSettings.preserveCase);
+        Document doc = parser.parseInput(html, "");
+        assertEquals("<r> <X> A </X> <y> B </y> </r>", StringUtil.normaliseWhitespace(doc.body().html()));
+
     }
 }

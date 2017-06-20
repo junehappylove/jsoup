@@ -10,9 +10,11 @@ import org.jsoup.select.Elements;
 import org.jsoup.select.Evaluator;
 import org.jsoup.select.NodeTraversor;
 import org.jsoup.select.NodeVisitor;
+import org.jsoup.select.QueryParser;
 import org.jsoup.select.Selector;
 
 import java.io.IOException;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -24,6 +26,8 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
+import static org.jsoup.internal.Normalizer.normalize;
+
 /**
  * A HTML element consists of a tag name, attributes, and child nodes (including text nodes and
  * other elements).
@@ -34,8 +38,17 @@ import java.util.regex.PatternSyntaxException;
  */
 public class Element extends Node {
     private Tag tag;
+    private WeakReference<List<Element>> shadowChildrenRef; // points to child elements shadowed from node children
 
     private static final Pattern classSplit = Pattern.compile("\\s+");
+
+    /**
+     * Create a new, standalone element.
+     * @param tag tag name
+     */
+    public Element(String tag) {
+        this(Tag.valueOf(tag), "", new Attributes());
+    }
 
     /**
      * Create a new, standalone Element. (Standalone in that is has no parent.)
@@ -198,7 +211,7 @@ public class Element extends Node {
      * @see #childNode(int)
      */
     public Element child(int index) {
-        return children().get(index);
+        return childElementsList().get(index);
     }
 
     /**
@@ -206,18 +219,41 @@ public class Element extends Node {
      * <p>
      * This is effectively a filter on {@link #childNodes()} to get Element nodes.
      * </p>
-     * @return child elements. If this element has no children, returns an
-     * empty list.
+     * @return child elements. If this element has no children, returns an empty list.
      * @see #childNodes()
      */
     public Elements children() {
-        // create on the fly rather than maintaining two lists. if gets slow, memoize, and mark dirty on change
-        List<Element> elements = new ArrayList<Element>(childNodes.size());
-        for (Node node : childNodes) {
-            if (node instanceof Element)
-                elements.add((Element) node);
+        return new Elements(childElementsList());
+    }
+
+    /**
+     * Maintains a shadow copy of this element's child elements. If the nodelist is changed, this cache is invalidated.
+     * TODO - think about pulling this out as a helper as there are other shadow lists (like in Attributes) kept around.
+     * @return a list of child elements
+     */
+    private List<Element> childElementsList() {
+        List<Element> children;
+        if (shadowChildrenRef == null || (children = shadowChildrenRef.get()) == null) {
+            final int size = childNodes.size();
+            children = new ArrayList<>(size);
+            //noinspection ForLoopReplaceableByForEach (beacause it allocates an Iterator which is wasteful here)
+            for (int i = 0; i < size; i++) {
+                final Node node = childNodes.get(i);
+                if (node instanceof Element)
+                    children.add((Element) node);
+            }
+            shadowChildrenRef = new WeakReference<>(children);
         }
-        return new Elements(elements);
+        return children;
+    }
+
+    /**
+     * Clears the cached shadow child elements.
+     */
+    @Override
+    void nodelistChanged() {
+        super.nodelistChanged();
+        shadowChildrenRef = null;
     }
 
     /**
@@ -237,7 +273,7 @@ public class Element extends Node {
      * </ul>
      */
     public List<TextNode> textNodes() {
-        List<TextNode> textNodes = new ArrayList<TextNode>();
+        List<TextNode> textNodes = new ArrayList<>();
         for (Node node : childNodes) {
             if (node instanceof TextNode)
                 textNodes.add((TextNode) node);
@@ -255,7 +291,7 @@ public class Element extends Node {
      * @see #data()
      */
     public List<DataNode> dataNodes() {
-        List<DataNode> dataNodes = new ArrayList<DataNode>();
+        List<DataNode> dataNodes = new ArrayList<>();
         for (Node node : childNodes) {
             if (node instanceof DataNode)
                 dataNodes.add((DataNode) node);
@@ -285,6 +321,24 @@ public class Element extends Node {
      */
     public Elements select(String cssQuery) {
         return Selector.select(cssQuery, this);
+    }
+
+    /**
+     * Check if this element matches the given {@link Selector} CSS query.
+     * @param cssQuery a {@link Selector} CSS query
+     * @return if this element matches the query
+     */
+    public boolean is(String cssQuery) {
+        return is(QueryParser.parse(cssQuery));
+    }
+
+    /**
+     * Check if this element matches the given evaluator.
+     * @param evaluator an element evaluator
+     * @return if this element matches
+     */
+    public boolean is(Evaluator evaluator) {
+        return evaluator.matches((Element)this.root(), this);
     }
     
     /**
@@ -333,9 +387,28 @@ public class Element extends Node {
         if (index < 0) index += currentSize +1; // roll around
         Validate.isTrue(index >= 0 && index <= currentSize, "Insert position out of bounds.");
 
-        ArrayList<Node> nodes = new ArrayList<Node>(children);
+        ArrayList<Node> nodes = new ArrayList<>(children);
         Node[] nodeArray = nodes.toArray(new Node[nodes.size()]);
         addChildren(index, nodeArray);
+        return this;
+    }
+
+    /**
+     * Inserts the given child nodes into this element at the specified index. Current nodes will be shifted to the
+     * right. The inserted nodes will be moved from their current parent. To prevent moving, copy the nodes first.
+     *
+     * @param index 0-based index to insert children at. Specify {@code 0} to insert at the start, {@code -1} at the
+     * end
+     * @param children child nodes to insert
+     * @return this element, for chaining.
+     */
+    public Element insertChildren(int index, Node... children) {
+        Validate.notNull(children, "Children collection to be inserted must not be null.");
+        int currentSize = childNodeSize();
+        if (index < 0) index += currentSize +1; // roll around
+        Validate.isTrue(index >= 0 && index <= currentSize, "Insert position out of bounds.");
+
+        addChildren(index, children);
         return this;
     }
     
@@ -526,7 +599,7 @@ public class Element extends Node {
         if (parentNode == null)
             return new Elements(0);
 
-        List<Element> elements = parent().children();
+        List<Element> elements = parent().childElementsList();
         Elements siblings = new Elements(elements.size() - 1);
         for (Element el: elements)
             if (el != this)
@@ -545,7 +618,7 @@ public class Element extends Node {
      */
     public Element nextElementSibling() {
         if (parentNode == null) return null;
-        List<Element> siblings = parent().children();
+        List<Element> siblings = parent().childElementsList();
         Integer index = indexInList(this, siblings);
         Validate.notNull(index);
         if (siblings.size() > index+1)
@@ -561,7 +634,7 @@ public class Element extends Node {
      */
     public Element previousElementSibling() {
         if (parentNode == null) return null;
-        List<Element> siblings = parent().children();
+        List<Element> siblings = parent().childElementsList();
         Integer index = indexInList(this, siblings);
         Validate.notNull(index);
         if (index > 0)
@@ -576,7 +649,7 @@ public class Element extends Node {
      */
     public Element firstElementSibling() {
         // todo: should firstSibling() exclude this?
-        List<Element> siblings = parent().children();
+        List<Element> siblings = parent().childElementsList();
         return siblings.size() > 1 ? siblings.get(0) : null;
     }
     
@@ -585,9 +658,9 @@ public class Element extends Node {
      * sibling, returns 0.
      * @return position in element sibling list
      */
-    public Integer elementSiblingIndex() {
+    public int elementSiblingIndex() {
        if (parent() == null) return 0;
-       return indexInList(this, parent().children()); 
+       return indexInList(this, parent().childElementsList());
     }
 
     /**
@@ -595,20 +668,16 @@ public class Element extends Node {
      * @return the last sibling that is an element (aka the parent's last element child) 
      */
     public Element lastElementSibling() {
-        List<Element> siblings = parent().children();
+        List<Element> siblings = parent().childElementsList();
         return siblings.size() > 1 ? siblings.get(siblings.size() - 1) : null;
     }
-    
-    private static <E extends Element> Integer indexInList(Element search, List<E> elements) {
-        Validate.notNull(search);
-        Validate.notNull(elements);
 
+    private static <E extends Element> int indexInList(Element search, List<E> elements) {
         for (int i = 0; i < elements.size(); i++) {
-            E element = elements.get(i);
-            if (element == search)
+            if (elements.get(i) == search)
                 return i;
         }
-        return null;
+        return 0;
     }
 
     // DOM type methods
@@ -620,7 +689,7 @@ public class Element extends Node {
      */
     public Elements getElementsByTag(String tagName) {
         Validate.notEmpty(tagName);
-        tagName = tagName.toLowerCase().trim();
+        tagName = normalize(tagName);
 
         return Collector.collect(new Evaluator.Tag(tagName), this);
     }
@@ -997,7 +1066,10 @@ public class Element extends Node {
     }
 
     /**
-     * Get the combined data of this element. Data is e.g. the inside of a {@code script} tag.
+     * Get the combined data of this element. Data is e.g. the inside of a {@code script} tag. Note that data is NOT the
+     * text of the element. Use {@link #text()} to get the text that would be visible to a user, and {@link #data()}
+     * for the contents of scripts, comments, CSS styles, etc.
+     *
      * @return the data, or empty string if none
      *
      * @see #dataNodes()
@@ -1009,6 +1081,9 @@ public class Element extends Node {
             if (childNode instanceof DataNode) {
                 DataNode data = (DataNode) childNode;
                 sb.append(data.getWholeData());
+            } else if (childNode instanceof Comment) {
+                Comment comment = (Comment) childNode;
+                sb.append(comment.getData());
             } else if (childNode instanceof Element) {
                 Element element = (Element) childNode;
                 String elementData = element.data();
@@ -1035,7 +1110,7 @@ public class Element extends Node {
      */
     public Set<String> classNames() {
     	String[] names = classSplit.split(className());
-    	Set<String> classNames = new LinkedHashSet<String>(Arrays.asList(names));
+    	Set<String> classNames = new LinkedHashSet<>(Arrays.asList(names));
     	classNames.remove(""); // if classNames() was empty, would include an empty class
 
         return classNames;
@@ -1059,7 +1134,7 @@ public class Element extends Node {
      */
     // performance sensitive
     public boolean hasClass(String className) {
-        final String classAttr = attributes.get("class");
+        final String classAttr = attributes.getIgnoreCase("class");
         final int len = classAttr.length();
         final int wantLen = className.length();
 

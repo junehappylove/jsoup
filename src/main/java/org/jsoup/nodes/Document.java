@@ -37,7 +37,7 @@ public class Document extends Element {
      @param baseUri baseUri of document
      @return document with html, head, and body elements.
      */
-    static public Document createShell(String baseUri) {
+    public static Document createShell(String baseUri) {
         Validate.notNull(baseUri);
 
         Document doc = new Document(baseUri);
@@ -137,7 +137,7 @@ public class Document extends Element {
 
     // does not recurse.
     private void normaliseTextNodes(Element element) {
-        List<Node> toMove = new ArrayList<Node>();
+        List<Node> toMove = new ArrayList<>();
         for (Node node: element.childNodes) {
             if (node instanceof TextNode) {
                 TextNode tn = (TextNode) node;
@@ -159,11 +159,10 @@ public class Document extends Element {
         Elements elements = this.getElementsByTag(tag);
         Element master = elements.first(); // will always be available as created above if not existent
         if (elements.size() > 1) { // dupes, move contents to master
-            List<Node> toMove = new ArrayList<Node>();
+            List<Node> toMove = new ArrayList<>();
             for (int i = 1; i < elements.size(); i++) {
                 Node dupe = elements.get(i);
-                for (Node node : dupe.childNodes)
-                    toMove.add(node);
+                toMove.addAll(dupe.childNodes);
                 dupe.remove();
             }
 
@@ -296,7 +295,7 @@ public class Document extends Element {
      * <tt>true</tt>, otherwise this method does nothing.
      * 
      * <ul>
-     * <li>An exsiting element gets updated with the current charset</li>
+     * <li>An existing element gets updated with the current charset</li>
      * <li>If there's no element yet it will be inserted</li>
      * <li>Obsolete elements are removed</li>
      * </ul>

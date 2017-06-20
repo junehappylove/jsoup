@@ -60,6 +60,10 @@ public class Attributes implements Iterable<Attribute>, Cloneable {
         if (attributes == null)
             return "";
 
+        Attribute attr = attributes.get(key);
+        if (attr != null)
+            return attr.getValue();
+
         for (String attrKey : attributes.keySet()) {
             if (attrKey.equalsIgnoreCase(key))
                 return attributes.get(attrKey).getValue();
@@ -96,7 +100,7 @@ public class Attributes implements Iterable<Attribute>, Cloneable {
     public void put(Attribute attribute) {
         Validate.notNull(attribute);
         if (attributes == null)
-             attributes = new LinkedHashMap<String, Attribute>(2);
+             attributes = new LinkedHashMap<>(2);
         attributes.put(attribute.getKey(), attribute);
     }
 
@@ -119,9 +123,10 @@ public class Attributes implements Iterable<Attribute>, Cloneable {
         Validate.notEmpty(key);
         if (attributes == null)
             return;
-        for (String attrKey : attributes.keySet()) {
+        for (Iterator<String> it = attributes.keySet().iterator(); it.hasNext(); ) {
+            String attrKey = it.next();
             if (attrKey.equalsIgnoreCase(key))
-                attributes.remove(attrKey);
+                it.remove();
         }
     }
 
@@ -167,7 +172,7 @@ public class Attributes implements Iterable<Attribute>, Cloneable {
         if (incoming.size() == 0)
             return;
         if (attributes == null)
-            attributes = new LinkedHashMap<String, Attribute>(incoming.size());
+            attributes = new LinkedHashMap<>(incoming.size());
         attributes.putAll(incoming.attributes);
     }
 
@@ -188,7 +193,7 @@ public class Attributes implements Iterable<Attribute>, Cloneable {
         if (attributes == null)
             return Collections.emptyList();
 
-        List<Attribute> list = new ArrayList<Attribute>(attributes.size());
+        List<Attribute> list = new ArrayList<>(attributes.size());
         for (Map.Entry<String, Attribute> entry : attributes.entrySet()) {
             list.add(entry.getValue());
         }
@@ -270,7 +275,7 @@ public class Attributes implements Iterable<Attribute>, Cloneable {
         } catch (CloneNotSupportedException e) {
             throw new RuntimeException(e);
         }
-        clone.attributes = new LinkedHashMap<String, Attribute>(attributes.size());
+        clone.attributes = new LinkedHashMap<>(attributes.size());
         for (Attribute attribute: this)
             clone.attributes.put(attribute.getKey(), attribute.clone());
         return clone;
@@ -280,7 +285,7 @@ public class Attributes implements Iterable<Attribute>, Cloneable {
 
         private Dataset() {
             if (attributes == null)
-                attributes = new LinkedHashMap<String, Attribute>(2);
+                attributes = new LinkedHashMap<>(2);
         }
 
         @Override

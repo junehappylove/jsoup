@@ -9,16 +9,18 @@ import org.jsoup.helper.StringUtil;
 import org.jsoup.helper.Validate;
 import org.jsoup.parser.TokenQueue;
 
+import static org.jsoup.internal.Normalizer.normalize;
+
 /**
  * Parses a CSS selector into an Evaluator tree.
  */
-class QueryParser {
+public class QueryParser {
     private final static String[] combinators = {",", ">", "+", "~", " "};
     private static final String[] AttributeEvals = new String[]{"=", "!=", "^=", "$=", "*=", "~="};
 
     private TokenQueue tq;
     private String query;
-    private List<Evaluator> evals = new ArrayList<Evaluator>();
+    private List<Evaluator> evals = new ArrayList<>();
 
     /**
      * Create a new QueryParser.
@@ -35,8 +37,12 @@ class QueryParser {
      * @return Evaluator
      */
     public static Evaluator parse(String query) {
-        QueryParser p = new QueryParser(query);
-        return p.parse();
+        try {
+            QueryParser p = new QueryParser(query);
+            return p.parse();
+        } catch (IllegalArgumentException e) {
+            throw new Selector.SelectorParseException(e.getMessage());
+        }
     }
 
     /**
@@ -162,6 +168,8 @@ class QueryParser {
             contains(false);
         else if (tq.matches(":containsOwn("))
             contains(true);
+        else if (tq.matches(":containsData("))
+            containsData();
         else if (tq.matches(":matches("))
             matches(false);
         else if (tq.matches(":matchesOwn("))
@@ -216,7 +224,7 @@ class QueryParser {
 
         // namespaces: wildcard match equals(tagName) or ending in ":"+tagName
         if (tagName.startsWith("*|")) {
-            evals.add(new CombiningEvaluator.Or(new Evaluator.Tag(tagName.trim().toLowerCase()), new Evaluator.TagEndsWith(tagName.replace("*|", ":").trim().toLowerCase())));
+            evals.add(new CombiningEvaluator.Or(new Evaluator.Tag(normalize(tagName)), new Evaluator.TagEndsWith(normalize(tagName.replace("*|", ":")))));
         } else {
             // namespaces: if element name is "abc:def", selector must be "abc|def", so flip:
             if (tagName.contains("|"))
@@ -282,7 +290,7 @@ class QueryParser {
     private static final Pattern NTH_B  = Pattern.compile("(\\+|-)?(\\d+)");
 
 	private void cssNthChild(boolean backwards, boolean ofType) {
-		String argS = tq.chompTo(")").trim().toLowerCase();
+		String argS = normalize(tq.chompTo(")"));
 		Matcher mAB = NTH_AB.matcher(argS);
 		Matcher mB = NTH_B.matcher(argS);
 		final int a, b;
@@ -337,6 +345,14 @@ class QueryParser {
             evals.add(new Evaluator.ContainsOwnText(searchText));
         else
             evals.add(new Evaluator.ContainsText(searchText));
+    }
+
+    // pseudo selector :containsData(data)
+    private void containsData() {
+        tq.consume(":containsData");
+        String searchText = TokenQueue.unescape(tq.chompBalanced('(', ')'));
+        Validate.notEmpty(searchText, ":containsData(text) query must not be empty");
+        evals.add(new Evaluator.ContainsData(searchText));
     }
 
     // :matches(regex), matchesOwn(regex)
